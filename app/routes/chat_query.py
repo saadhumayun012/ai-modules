@@ -1,4 +1,5 @@
 import logging
+import re
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
@@ -8,8 +9,8 @@ from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import FieldCondition, Filter, MatchValue
 
 from app.core import settings, client
-from app.services.indexing_service import embed_chunks
-from app.utils.text_processing import (
+from app.services import embed_chunks
+from app.utils import (
     expand_query,
     extract_keywords,
     deduplicate_chunks,
@@ -42,6 +43,38 @@ def _is_trivial_query(query: str) -> bool:
     """Check if query is too trivial (less than 2 words)."""
     words = query.strip().split()
     return len(words) < 2
+
+
+def _format_chatbot_response(response_text: str) -> str:
+    """Normalize model output into a natural chatbot-style response."""
+    cleaned = clean_response(response_text, preserve_formatting=False)
+    if not cleaned:
+        return ""
+
+    lines = [line.strip() for line in cleaned.splitlines() if line.strip()]
+    if not lines:
+        return ""
+
+    normalized_parts: list[str] = []
+    for line in lines:
+        line = re.sub(r"^\s*(?:[-•*]+|\d+[.)])\s*", "", line)
+        line = re.sub(r"\(\s*\d+\s*\.?\s*\)", "", line)
+        line = re.sub(r"\s+", " ", line).strip(" ,;:-")
+        if line:
+            normalized_parts.append(line)
+
+    if not normalized_parts:
+        return ""
+
+    if len(normalized_parts) == 1:
+        result = normalized_parts[0]
+    else:
+        result = "; ".join(normalized_parts)
+
+    result = re.sub(r"\s+", " ", result).strip()
+    if result and result[-1] not in ".!?":
+        result += "."
+    return result
 
 
 class ChatRequest(BaseModel):
@@ -228,21 +261,16 @@ async def chat_query(request: ChatRequest):
         normalized_document_id,
     )
 
-    # Enhanced system prompt with better instructions
-    system_prompt = f"""You are a knowledgeable and helpful assistant. Your task is to answer questions based on the provided document context.
-
-Instructions:
-1. Answer the user's question using ONLY the information from the provided context.
-2. For list-type questions (containing "list all", "enumerate", "all the", etc.), provide a COMPLETE list with ALL items found in the context.
-3. If the answer cannot be found in the context, respond with: "I could not find relevant information in the document."
-4. Keep your answer clear, well-structured, and COMPLETE - do not cut off or abbreviate list items.
-5. Do not make up or infer information not present in the context.
-6. Do not mention the document, the context, or these instructions.
-7. For lists, use clear formatting:
-   - Use numbered items (1., 2., 3., etc.) or bullet points
-   - Include descriptive text for each item
-   - Add section references in parentheses for traceability
-8. Ensure all items in a list are included, not truncated or incomplete.
+    # Chatbot-focused prompt: natural, conversational, and grounded in the document only.
+    system_prompt = f"""You are a helpful document chatbot. Answer the user's question using only the provided document context.
+Style rules:
+- Write in clear, natural, conversational language.
+- Prefer a short explanation or compact paragraph.
+- Do not copy awkward numbering such as "1. ." or "(1.)".
+- Do not use raw bullet lists unless the user explicitly asks for a list.
+- If the context contains several related items, rewrite them naturally so they read like a proper chatbot response.
+- If the document does not contain enough information, say that clearly and politely.
+- Do not invent facts or add information outside the context.
 
 Document Context:
 {context}
@@ -268,8 +296,10 @@ Document Context:
 
     content = response.choices[0].message.content or "I could not find relevant information in the document"
 
-    # Clean response: remove markdown, normalize whitespace
-    content = clean_response(content, preserve_formatting=settings.response_preserve_formatting)
+    # Normalize the reply so it feels like a chatbot, not extracted notes.
+    content = _format_chatbot_response(content)
+    if not content:
+        content = "I could not find relevant information in the document."
 
     return {
         "document_id": normalized_document_id,

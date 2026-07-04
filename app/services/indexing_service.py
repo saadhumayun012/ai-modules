@@ -16,9 +16,8 @@ from qdrant_client.models import (
     PointStruct,
 )
 
-from app.core import settings, client, init_collection
-from app.core.models import ChunkData
-from app.core.embedding import get_embedding_model
+from app.core import settings, client, init_collection, get_embedding_model
+from app.core import ChunkData
 
 logger = logging.getLogger(__name__)
 

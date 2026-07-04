@@ -1,7 +1,7 @@
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-from app.core import settings
+from app.core.settings import settings
 from app.core.embedding import get_embedding_model
 
 client = QdrantClient(url=settings.qdrant_url)

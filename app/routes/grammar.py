@@ -1,6 +1,5 @@
 # routers/grammar.py
 from fastapi import APIRouter, HTTPException, UploadFile, File, status
-from fastapi.concurrency import run_in_threadpool
 import httpx
 from app.services import extract_document_structure
 from app.services import check_structured_grammar
@@ -39,6 +38,24 @@ async def check_document(file: UploadFile = File(...)):
             sections=structure
         )
         return result
+    except RuntimeError as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "Grammar preprocessing is unavailable on this server.",
+                "hint": str(e),
+                "code": "GRAMMAR_PREPROCESSING_UNAVAILABLE",
+            },
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": "Grammar inference response mismatch.",
+                "hint": str(e),
+                "code": "GRAMMAR_INFERENCE_MISMATCH",
+            },
+        )
     except httpx.ReadTimeout:
         raise HTTPException(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
@@ -48,7 +65,7 @@ async def check_document(file: UploadFile = File(...)):
                 "code": "GRAMMAR_TIMEOUT",
             },
         )
-    except httpx.ConnectError:
+    except (httpx.ConnectError, httpx.ConnectTimeout):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail={

@@ -1,44 +1,15 @@
-import re
 from typing import cast
 
 import numpy as np
-from fastembed import TextEmbedding
 
-from app.core import settings
-from app.core.constants import HEADING_STYLES_LOWER, SKIP_STYLES_LOWER, SKIP_HEADINGS_LOWER, is_skip_heading
-from app.core.models import SectionData, SentenceIssue, ParagraphIssue
-from app.core.embedding import get_embedding_model
-
-try:
-    import spacy  # type: ignore
-except ImportError:  # pragma: no cover
-    spacy = None
+from app.core import settings, get_embedding_model
+from app.core import SectionData, SentenceIssue, ParagraphIssue
+from app.utils import split_into_sentences
 
 SENTENCE_THRESHOLD = float(settings.coherence_sentence_threshold)
 PARAGRAPH_THRESHOLD = float(settings.coherence_paragraph_threshold)
 WINDOW_SIZE = int(settings.coherence_sentence_window)
 MIN_SENTENCE_WORDS = int(settings.coherence_min_sentence_words)
-
-_NLP = None
-if spacy is not None:
-    try:
-        _NLP = spacy.blank("en")
-        if "sentencizer" not in _NLP.pipe_names:
-            _NLP.add_pipe("sentencizer")
-    except Exception:
-        _NLP = None
-
-
-def split_into_sentences(paragraph: str) -> list[str]:
-    # Split paragraph into sentences using spaCy or regex; filter short sentences
-    if _NLP is not None:
-        doc = _NLP(paragraph)
-        raw_sentences = [s.text.strip() for s in doc.sents]
-    else:
-        raw_sentences = re.split(r"(?<=[.!?])\s+", paragraph)
-
-    return [s for s in raw_sentences if s and len(s.split()) >= MIN_SENTENCE_WORDS]
-
 
 def embed_sentences(sentences: list[str]) -> np.ndarray:
     # Generate embeddings for list of sentences
@@ -75,7 +46,10 @@ def analyze_coherence(sections: list[SectionData]) -> dict:
         all_sentences: list[str] = []
 
         for para_idx, paragraph in enumerate(paragraphs):
-            sentences = split_into_sentences(paragraph)
+            sentences = split_into_sentences(
+                paragraph,
+                min_words=MIN_SENTENCE_WORDS,
+            )
             if sentences:
                 para_sentence_map.append((para_idx, sentences))
                 all_sentences.extend(sentences)

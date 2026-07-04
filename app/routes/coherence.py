@@ -2,8 +2,7 @@ import logging
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
-from app.services.document_extractor import extract_document_structure
-from app.services.coherence_service import analyze_coherence
+from app.services import extract_document_structure, analyze_coherence
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -46,6 +45,15 @@ async def coherence(file: UploadFile = File(...)):
     # Analyze coherence: sentence-to-sentence and paragraph-to-paragraph similarity
     try:
         result = await run_in_threadpool(analyze_coherence, structure)
+    except RuntimeError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": "Coherence preprocessing is unavailable on this server.",
+                "hint": str(exc),
+                "code": "COHERENCE_PREPROCESSING_UNAVAILABLE",
+            },
+        )
     except Exception as exc:
         logger.exception("Coherence analysis failed: %s", exc)
         raise HTTPException(

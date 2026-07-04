@@ -3,8 +3,8 @@ from fastapi import APIRouter, HTTPException, UploadFile, File, Form, status
 from fastapi.concurrency import run_in_threadpool
 
 from app.core import settings
-from app.utils.validators import validate_docx_file
-from app.services.indexing_service import (
+from app.utils import validate_docx_file
+from app.services import (
     extract_text_from_docx,
     chunk_content,
     embed_chunks,

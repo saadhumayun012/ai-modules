@@ -8,9 +8,9 @@ from docx.text.paragraph import Paragraph as DocxParagraph
 from docx.table import Table as DocxTable
 from fastapi import UploadFile
 
-from app.core.constants import HEADING_STYLES_LOWER, SKIP_STYLES_LOWER, SKIP_HEADINGS_LOWER, is_skip_heading
-from app.core.models import SectionData
-from app.utils.validators import validate_docx_file
+from app.core import HEADING_STYLES_LOWER, SKIP_STYLES_LOWER, SKIP_HEADINGS_LOWER, is_skip_heading
+from app.core import SectionData
+from app.utils import validate_docx_file
 
 # ── Helpers ───────────────────────────────────────────────────
 

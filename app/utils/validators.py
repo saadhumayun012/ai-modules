@@ -1,8 +1,7 @@
 # app/utils/validators.py
 """File validation utilities."""
 
-from app.core.constants import ALLOWED_DOCX_CONTENT_TYPES
-from app.core import settings
+from app.core import settings, ALLOWED_DOCX_CONTENT_TYPES
 
 
 def validate_docx_file(
