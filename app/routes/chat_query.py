@@ -208,8 +208,16 @@ async def chat_query(request: ChatRequest):
         unique_texts = deduplicate_chunks(
             texts, similarity_threshold=settings.retrieval_deduplication_threshold
         )
-        unique_text_set = set(unique_texts)
-        points = [p for p in points if str((p.payload or {}).get("text", "")) in unique_text_set]
+        # Keep only the first point for each deduplicated text group
+        matched = set()
+        filtered = []
+        for p in points:
+            text = str((p.payload or {}).get("text", ""))
+            if text not in matched:
+                matched.add(text)
+                if text in unique_texts:
+                    filtered.append(p)
+        points = filtered
 
     # Re-rank by keyword overlap and semantic score
     points_with_data = [
@@ -240,12 +248,11 @@ async def chat_query(request: ChatRequest):
 
     context_chunks = [{"text": p["text"]} for p in top_points]
 
-    # Assemble context with optional deduplication and length limiting
+    # Assemble context with length limiting (dedup already done above)
     context, chunks_used = assemble_context(
         context_chunks,
         max_context_length=settings.retrieval_max_context_length,
-        remove_duplicates=settings.retrieval_deduplication_enabled,
-        duplicate_threshold=settings.retrieval_deduplication_threshold,
+        remove_duplicates=False,
     )
 
     if not context:
@@ -262,15 +269,15 @@ async def chat_query(request: ChatRequest):
     )
 
     # Chatbot-focused prompt: natural, conversational, and grounded in the document only.
-    system_prompt = f"""You are a helpful document chatbot. Answer the user's question using only the provided document context.
-Style rules:
+    system_prompt = f"""You are a document-only chatbot. Answer using ONLY the context below. Do NOT use any external knowledge or your training data.
+
+Rules:
+- If the context does not contain the answer, say: "I'm sorry, but I can only provide information from the uploaded document, and this question is not covered in it." Do NOT offer external examples, code, or explanations.
 - Write in clear, natural, conversational language.
 - Prefer a short explanation or compact paragraph.
 - Do not copy awkward numbering such as "1. ." or "(1.)".
 - Do not use raw bullet lists unless the user explicitly asks for a list.
 - If the context contains several related items, rewrite them naturally so they read like a proper chatbot response.
-- If the document does not contain enough information, say that clearly and politely.
-- Do not invent facts or add information outside the context.
 
 Document Context:
 {context}
