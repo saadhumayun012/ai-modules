@@ -37,27 +37,23 @@ def restore_citations(text: str, citations: list[str]) -> str:
     return restored
 
 
-def should_skip(sentence: str) -> bool:
+def _fast_check(sentence: str) -> bool:
     text = sentence.strip()
 
     if len(text.split()) < settings.grammar_min_sentence_words:
-        return True
+        return False
     if re.match(r"^[\u2022\u2219\-*]\s+", text):
-        return True
+        return False
     if re.match(r"^[A-Z]{1,5}-\d+[\.\:]\s*", text):
-        return True
+        return False
     if re.search(r"https?://", text):
-        return True
+        return False
 
     alpha_ratio = sum(c.isalpha() for c in text) / max(len(text), 1)
     if alpha_ratio < 0.5:
-        return True
+        return False
 
-    doc = get_nlp()(text)
-    if not any(token.pos_ == "VERB" for token in doc):
-        return True
-
-    return False
+    return True
 
 
 def highlight_diff(original: str, corrected: str) -> tuple[str, list[dict[str, str]]]:
@@ -101,6 +97,7 @@ def highlight_diff(original: str, corrected: str) -> tuple[str, list[dict[str, s
 
 def build_grammar_items(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
+    candidates: list[tuple[str, str]] = []
 
     for section in sections:
         heading = section.get("heading", "Document")
@@ -109,17 +106,27 @@ def build_grammar_items(sections: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 paragraph,
                 min_words=settings.grammar_min_sentence_words,
             ):
-                if should_skip(sentence):
+                if not _fast_check(sentence):
                     continue
-                clean, citations = handle_citations(sentence)
-                items.append(
-                    {
-                        "heading": heading,
-                        "original": sentence,
-                        "clean": clean,
-                        "citations": citations,
-                    }
-                )
+                candidates.append((heading, sentence))
+
+    if not candidates:
+        return items
+
+    nlp = get_nlp()
+    texts = [s for _, s in candidates]
+    docs = nlp.pipe(texts, batch_size=64)
+
+    for (heading, sentence), doc in zip(candidates, docs):
+        if not any(token.pos_ == "VERB" for token in doc):
+            continue
+        clean, citations = handle_citations(sentence)
+        items.append({
+            "heading": heading,
+            "original": sentence,
+            "clean": clean,
+            "citations": citations,
+        })
 
     return items
 
@@ -165,7 +172,7 @@ def apply_predictions(
 async def check_structured_grammar(filename: str, sections: list[dict]):
     """Process sections locally, call Colab inference, and return corrections."""
     timeout = httpx.Timeout(
-        connect=settings.grammar_api_timeout,
+        connect=settings.grammar_api_connect_timeout,
         read=settings.grammar_api_timeout,
         write=20.0,
         pool=5.0,
@@ -175,6 +182,7 @@ async def check_structured_grammar(filename: str, sections: list[dict]):
     if not items:
         return {
             "filename": filename,
+            "total_sections": len(sections),
             "total_corrections": 0,
             "corrections": [],
         }
@@ -206,6 +214,7 @@ async def check_structured_grammar(filename: str, sections: list[dict]):
 
     return {
         "filename": filename,
+        "total_sections": len(sections),
         "total_corrections": len(corrections),
         "corrections": corrections,
     }

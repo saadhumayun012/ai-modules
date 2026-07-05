@@ -44,7 +44,8 @@ class Setting(BaseSettings):
     coherence_max_docx_bytes: int = 10 * 1024 * 1024
 
     # Grammar
-    grammar_api_timeout: float = 90.0  # seconds
+    grammar_api_timeout: float = 90.0  # seconds (read timeout)
+    grammar_api_connect_timeout: float = 10.0  # seconds (connect timeout)
     grammar_confidence_threshold: float = 0.70
     grammar_batch_size: int = 64
     grammar_min_sentence_words: int = 4
