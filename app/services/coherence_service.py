@@ -11,8 +11,8 @@ PARAGRAPH_THRESHOLD = float(settings.coherence_paragraph_threshold)
 WINDOW_SIZE = int(settings.coherence_sentence_window)
 MIN_SENTENCE_WORDS = int(settings.coherence_min_sentence_words)
 
+
 def embed_sentences(sentences: list[str]) -> np.ndarray:
-    # Generate embeddings for list of sentences
     embedding_model = get_embedding_model()
     vectors = list(embedding_model.embed(sentences))
     if not vectors:
@@ -21,12 +21,18 @@ def embed_sentences(sentences: list[str]) -> np.ndarray:
 
 
 def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
-    # Compute normalized dot product between two vectors
     norm1 = float(np.linalg.norm(vec1))
     norm2 = float(np.linalg.norm(vec2))
     if norm1 == 0.0 or norm2 == 0.0:
         return 0.0
     return float(np.dot(vec1, vec2) / (norm1 * norm2))
+
+
+def _preview(text: str, max_words: int = 10) -> str:
+    words = text.split()
+    if len(words) <= max_words:
+        return text
+    return " ".join(words[:max_words]) + "..."
 
 
 def analyze_coherence(sections: list[SectionData]) -> dict:
@@ -35,51 +41,65 @@ def analyze_coherence(sections: list[SectionData]) -> dict:
     if WINDOW_SIZE < 1:
         raise ValueError("coherence_sentence_window must be >= 1")
 
+    section_sentence_data: list[list[tuple[int, str]]] = []
     for section in sections:
+        section_sents: list[tuple[int, str]] = []
+        for para_idx, paragraph in enumerate(section.get("paragraphs", [])):
+            for sentence in split_into_sentences(paragraph, min_words=MIN_SENTENCE_WORDS):
+                section_sents.append((para_idx, sentence))
+        section_sentence_data.append(section_sents)
+
+    all_texts = [s for section in section_sentence_data for (_, s) in section]
+    if not all_texts:
+        return {"total_issues": 0, "issues": []}
+
+    all_embeddings = embed_sentences(all_texts)
+    if all_embeddings.size == 0:
+        return {"total_issues": 0, "issues": []}
+
+    # Phase 3: Process each section using its slice of embeddings
+    offset = 0
+    for section_idx, section in enumerate(sections):
         heading = section.get("heading", "Untitled")
-        paragraphs = section.get("paragraphs", [])
-
-        if not paragraphs:
+        section_sents = section_sentence_data[section_idx]
+        n = len(section_sents)
+        if n == 0:
             continue
 
+        section_embeddings = all_embeddings[offset : offset + n]
+        offset += n
+
+        # Group sentences and embeddings by paragraph
         para_sentence_map: list[tuple[int, list[str]]] = []
-        all_sentences: list[str] = []
+        para_emb_list: list[np.ndarray] = []
+        emb_idx = 0
 
-        for para_idx, paragraph in enumerate(paragraphs):
-            sentences = split_into_sentences(
-                paragraph,
-                min_words=MIN_SENTENCE_WORDS,
-            )
-            if sentences:
-                para_sentence_map.append((para_idx, sentences))
-                all_sentences.extend(sentences)
+        for para_idx, paragraph in enumerate(section.get("paragraphs", [])):
+            sentences = split_into_sentences(paragraph, min_words=MIN_SENTENCE_WORDS)
+            if not sentences:
+                continue
+            para_sentence_map.append((para_idx, sentences))
+            para_emb = section_embeddings[emb_idx : emb_idx + len(sentences)]
+            para_emb_list.append(para_emb)
+            emb_idx += len(sentences)
 
-        if not all_sentences:
-            continue
+        # Sentence-level coherence
+        para_vectors: list[tuple[int, np.ndarray]] = []
 
-        all_embeddings = embed_sentences(all_sentences)
-        if all_embeddings.size == 0:
-            continue
-
-        paragraph_embeddings: list[tuple[int, np.ndarray]] = []
-        offset = 0
-
-        for para_idx, sentences in para_sentence_map:
-            n = len(sentences)
-            para_embeddings = all_embeddings[offset : offset + n]
-            offset += n
+        for pg_idx, (para_idx, sentences) in enumerate(para_sentence_map):
+            para_emb = para_emb_list[pg_idx]
+            m = len(sentences)
 
             flagged_indices: set[int] = set()
 
-            for i in range(len(sentences)):
+            for i in range(m):
                 if i in flagged_indices:
                     continue
 
                 window_scores: list[tuple[int, float]] = []
 
-                # Compare sentence i against next WINDOW_SIZE sentences
-                for j in range(i + 1, min(i + WINDOW_SIZE + 1, len(sentences))):
-                    score = cosine_similarity(para_embeddings[i], para_embeddings[j])
+                for j in range(i + 1, min(i + WINDOW_SIZE + 1, m)):
+                    score = cosine_similarity(para_emb[i], para_emb[j])
                     window_scores.append((j, score))
 
                 if not window_scores:
@@ -101,21 +121,27 @@ def analyze_coherence(sections: list[SectionData]) -> dict:
                     }
                     issues.append(sentence_issue)
 
-            paragraph_vector = np.mean(para_embeddings, axis=0)
-            paragraph_embeddings.append((para_idx, paragraph_vector))
+            paragraph_vector = np.mean(para_emb, axis=0)
+            para_vectors.append((para_idx, paragraph_vector))
 
-        # Compare adjacent paragraph vectors (mean of sentence embeddings)
-        for i in range(len(paragraph_embeddings) - 1):
-            current_idx, current_vec = paragraph_embeddings[i]
-            next_idx, next_vec = paragraph_embeddings[i + 1]
-
+        # Paragraph-level coherence
+        for i in range(len(para_vectors) - 1):
+            current_idx, current_vec = para_vectors[i]
+            next_idx, next_vec = para_vectors[i + 1]
             score = cosine_similarity(current_vec, next_vec)
+
             if score < PARAGRAPH_THRESHOLD:
+                # Find the paragraph texts for context
+                _, curr_sentences = para_sentence_map[i]
+                _, next_sentences = para_sentence_map[i + 1]
+
                 paragraph_issue: ParagraphIssue = {
                     "heading": heading,
                     "level": "paragraph",
                     "location": f"Paragraph {current_idx + 1} -> {next_idx + 1}",
                     "score": round(score, 2),
+                    "paragraph_1": _preview(curr_sentences[0]) if curr_sentences else "",
+                    "paragraph_2": _preview(next_sentences[0]) if next_sentences else "",
                 }
                 issues.append(paragraph_issue)
 

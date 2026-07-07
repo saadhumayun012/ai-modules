@@ -34,6 +34,7 @@ class Setting(BaseSettings):
     # LLM chat settings
     llm_temperature: float = 0.3
     llm_max_tokens: int = 1500
+    chatbot_timeout: float = 30.0  # seconds
     response_preserve_formatting: bool = False  # If True, preserves markdown formatting
 
     # Coherence
@@ -42,6 +43,7 @@ class Setting(BaseSettings):
     coherence_sentence_window: int = 2
     coherence_min_sentence_words: int = 5
     coherence_max_docx_bytes: int = 10 * 1024 * 1024
+    coherence_timeout: float = 120.0  # seconds
 
     # Grammar
     grammar_api_timeout: float = 90.0  # seconds (read timeout)

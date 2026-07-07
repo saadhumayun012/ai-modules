@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 
@@ -285,14 +286,26 @@ Document Context:
 
     # Call LLM with context and query
     try:
-        response = chat_client.chat.completions.create(
-            model=settings.llm_model,
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": request.query},
-            ],
-            temperature=settings.llm_temperature,
-            max_tokens=settings.llm_max_tokens,
+        response = await asyncio.wait_for(
+            chat_client.chat.completions.create(
+                model=settings.llm_model,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": request.query},
+                ],
+                temperature=settings.llm_temperature,
+                max_tokens=settings.llm_max_tokens,
+            ),
+            timeout=settings.chatbot_timeout,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "message": "The AI assistant took too long to respond.",
+                "hint": "Your query may be too complex. Try a simpler question.",
+                "code": "CHAT_TIMEOUT",
+            },
         )
     except Exception as exc:
         logger.exception("LLM service error for document_id=%s: %s", normalized_document_id, exc)

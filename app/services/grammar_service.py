@@ -12,6 +12,7 @@ _CITATION_PATTERNS = [
     r"\([A-Z][a-zA-Z\s]+,?\s*\d{4}[a-z]?\)",
     r"\[\d+(?:,\s*\d+)*\]",
     r"[A-Z][a-z]+\s+et\s+al\.\s*\(\d{4}\)",
+    r"(?i)\s*\.(docx|doc|pdf|xml|json|csv|txt|html?|css|js|py|java|cpp|net|exe|jpg|jpeg|png|gif|svg|pptx|xlsx|zip|tar|gz)\b",
 ]
 
 
@@ -19,7 +20,7 @@ def handle_citations(text: str) -> tuple[str, list[str]]:
     citations: list[str] = []
 
     def replacer(match: re.Match) -> str:
-        placeholder = f"CITATION{len(citations)}"
+        placeholder = f"@@PH{len(citations)}@@"
         citations.append(match.group())
         return placeholder
 
@@ -33,7 +34,7 @@ def handle_citations(text: str) -> tuple[str, list[str]]:
 def restore_citations(text: str, citations: list[str]) -> str:
     restored = text
     for i, citation in enumerate(citations):
-        restored = restored.replace(f"CITATION{i}", citation)
+        restored = restored.replace(f"@@PH{i}@@", citation)
     return restored
 
 

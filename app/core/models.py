@@ -27,6 +27,8 @@ class ParagraphIssue(TypedDict):
     level: str
     location: str
     score: float
+    paragraph_1: str
+    paragraph_2: str
 
 
 class ChunkData(TypedDict):

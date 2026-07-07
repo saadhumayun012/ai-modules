@@ -1,7 +1,10 @@
+import asyncio
 import logging
+
 from fastapi import APIRouter, File, HTTPException, UploadFile, status
 from fastapi.concurrency import run_in_threadpool
 
+from app.core import settings
 from app.services import extract_document_structure, analyze_coherence
 
 router = APIRouter()
@@ -44,7 +47,19 @@ async def coherence(file: UploadFile = File(...)):
 
     # Analyze coherence: sentence-to-sentence and paragraph-to-paragraph similarity
     try:
-        result = await run_in_threadpool(analyze_coherence, structure)
+        result = await asyncio.wait_for(
+            run_in_threadpool(analyze_coherence, structure),
+            timeout=settings.coherence_timeout,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "message": "Coherence analysis timed out.",
+                "hint": "Your document is too large. Try a smaller file.",
+                "code": "COHERENCE_TIMEOUT",
+            },
+        )
     except RuntimeError as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
