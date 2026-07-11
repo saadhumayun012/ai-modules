@@ -8,4 +8,30 @@ services:
       - "6333:6333"
       - "6334:6334"
     volumes:
-      - ./qdrant_storage:/qdrant/storage
+      - qdrant_data:/qdrant/storage
+    networks:
+      - app-network
+    restart: always
+
+  fastapi:
+    build: .
+    container_name: fyp-api
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env.docker
+    depends_on:
+      - qdrant
+    volumes:
+      - hf_cache:/root/.cache/huggingface
+    networks:
+      - app-network
+    restart: always
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  qdrant_data:
+  hf_cache:
