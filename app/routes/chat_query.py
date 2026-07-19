@@ -4,7 +4,7 @@ import re
 
 from fastapi import APIRouter, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
-from openai import OpenAI
+from openai import AsyncOpenAI
 from pydantic import BaseModel, Field, field_validator
 from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import FieldCondition, Filter, MatchValue
@@ -22,7 +22,7 @@ from app.utils import (
 
 logger = logging.getLogger(__name__)
 
-chat_client = OpenAI(
+chat_client = AsyncOpenAI(
     api_key=settings.api_key,
     base_url=settings.base_url,
 )
